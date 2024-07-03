@@ -58,7 +58,7 @@ def wait_for_server(playground:bool, task_id, apikey, apiurl):
     sys.stdout.flush()
     time.sleep(1)
     tries = 0
-    while tries < 300:
+    while tries < 50:
         if playground:
             full_url = apiurl + '/api/restart_status'
         else:
@@ -90,6 +90,15 @@ def wait_for_server(playground:bool, task_id, apikey, apiurl):
     sys.stdout.flush()
     return False
 
+def verify_file_syntax(filepath):
+    if filepath.endswith('.py'):
+        try:
+            source = open(filepath, 'r').read() + '\n'
+            compile(source, filepath, 'exec')
+            #subprocess.run(['python3', '-m', 'py_compile', filepath], check=True)
+        except Exception as err:
+            sys.exit(f"Not Installed, Syntax error: { err }\n")
+    return
 
 def dainstall():
     dotfile = os.path.join(os.path.expanduser('~'), '.docassemblecli')
@@ -193,6 +202,10 @@ def dainstall():
     except:
         raw_ignore = []
     to_ignore = [path.rstrip('/') for path in raw_ignore]
+    got = os.listdir(args.directory)
+    if 'tests' in got:
+        sys.stdout.write("Ignoring tests directory\n")
+        to_ignore.append('tests')
     root_directory = None
     has_python_files = False
     this_package_name = None
@@ -224,6 +237,7 @@ def dainstall():
                 continue
             if not has_python_files and the_file.endswith('.py') and not (the_file == 'setup.py' and root == root_directory) and the_file != '__init__.py':
                 has_python_files = True
+            verify_file_syntax(os.path.join(root, the_file))
             zf.write(os.path.join(root, the_file), os.path.relpath(os.path.join(root, the_file), os.path.join(args.directory, '..')))
     zf.close()
     archive.seek(0)
@@ -279,6 +293,7 @@ def dainstall():
             sys.exit("playground list of projects GET returned " + str(project_list.status_code) + ": " + project_list.text)
         r = requests.post(apiurl + '/api/playground_install', data=data, files={'file': archive}, headers={'X-API-Key': apikey})
         if r.status_code == 400:
+            sys.stdout.write("Response 400 Doing second attempt.\n")
             try:
                 error_message = r.json()
             except:
@@ -303,6 +318,9 @@ def dainstall():
             sys.stdout.write("\n")
             sys.exit("playground_install POST returned " + str(r.status_code) + ": " + r.text)
         if success:
+            if should_restart:
+                sys.stdout.write(f"\n{ datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') }: Package Installed, waiting for full restart.")
+                time.sleep(15)
             sys.stdout.write("\nInstalled.\n")
             sys.stdout.flush()
         else:
