@@ -11,6 +11,29 @@ import yaml
 import requests
 import subprocess
 from packaging import version
+import setuptools
+import importlib
+
+
+def get_setup_info(pth):
+    call_args = {}
+
+    def mock_func(*args, **kwargs):
+        nonlocal call_args
+        # print("setuptools.setup mock_func called")
+        call_args = kwargs
+
+    setuptools.setup = mock_func
+    orig_dir = os.path.abspath(os.curdir)
+    if str(pth).endswith(".py"):
+        pth = os.path.dirname(pth)
+    os.chdir(pth)
+    exec(open("setup.py").read(), locals())
+    os.chdir(orig_dir)
+    if not call_args:
+        raise Exception("mock setuptools.setup not called")
+    importlib.reload(setuptools)
+    return call_args
 
 
 def select_server(env, apiname):
@@ -287,38 +310,56 @@ def dainstall():
         if root_directory is None and ("setup.py" in files or "setup.cfg" in files):
             root_directory = root
             if "setup.py" in files:
-                with open(os.path.join(root, "setup.py"), "r", encoding="utf-8") as fp:
-                    setup_text = fp.read()
-                    m = re.search(r'setup\(.*\bname=(["\'])(.*?)(["\'])', setup_text)
-                    if m and m.group(1) == m.group(3):
-                        this_package_name = m.group(2).strip()
-                    m = re.search(
-                        r"setup\(.*install_requires=\[(.*?)\]",
-                        setup_text,
-                        flags=re.DOTALL,
-                    )
-                    if m:
-                        for package_text in m.group(1).split(","):
-                            package_name = package_text.strip()
-                            if (
-                                len(package_name) >= 3
-                                and package_name[0] == package_name[-1]
-                                and package_name[0] in ("'", '"')
-                            ):
-                                package_name = package_name[1:-1]
-                                mm = re.search(r"(.*)(<=|>=|==|<|>)(.*)", package_name)
-                                if mm:
-                                    dependencies[mm.group(1).strip()] = {
-                                        "installed": False,
-                                        "operator": mm.group(2),
-                                        "version": mm.group(3).strip(),
-                                    }
-                                else:
-                                    dependencies[package_name] = {
-                                        "installed": False,
-                                        "operator": None,
-                                        "version": None,
-                                    }
+                setup_dict = get_setup_info(root)
+                this_package_name = setup_dict.get("name")
+                for package_text in setup_dict.get("install_requires", []):
+                    package_name = package_text.strip()
+                    if len(package_name) >= 3:
+                        mm = re.search(r"(.*)(<=|>=|==|<|>)(.*)", package_name)
+                        if mm:
+                            dependencies[mm.group(1).strip()] = {
+                                "installed": False,
+                                "operator": mm.group(2),
+                                "version": mm.group(3).strip(),
+                            }
+                        else:
+                            dependencies[package_name] = {
+                                "installed": False,
+                                "operator": None,
+                                "version": None,
+                            }
+                # with open(os.path.join(root, "setup.py"), "r", encoding="utf-8") as fp:
+                #     setup_text = fp.read()
+                #     m = re.search(r'setup\(.*\bname=(["\'])(.*?)(["\'])', setup_text)
+                #     if m and m.group(1) == m.group(3):
+                #         this_package_name = m.group(2).strip()
+                #     m = re.search(
+                #         r"setup\(.*install_requires=\[(.*?)\]",
+                #         setup_text,
+                #         flags=re.DOTALL,
+                #     )
+                #     if m:
+                #         for package_text in m.group(1).split(","):
+                #             package_name = package_text.strip()
+                #             if (
+                #                 len(package_name) >= 3
+                #                 and package_name[0] == package_name[-1]
+                #                 and package_name[0] in ("'", '"')
+                #             ):
+                #                 package_name = package_name[1:-1]
+                #                 mm = re.search(r"(.*)(<=|>=|==|<|>)(.*)", package_name)
+                #                 if mm:
+                #                     dependencies[mm.group(1).strip()] = {
+                #                         "installed": False,
+                #                         "operator": mm.group(2),
+                #                         "version": mm.group(3).strip(),
+                #                     }
+                #                 else:
+                #                     dependencies[package_name] = {
+                #                         "installed": False,
+                #                         "operator": None,
+                #                         "version": None,
+                #                     }
         for the_file in files:
             if (
                 the_file.endswith("~")
